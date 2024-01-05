@@ -183,7 +183,8 @@ matrix_beta <- matrix(ncol = length(col_name), nrow = K)
 
 for(i in 1:K){
   mdl <- arima(Y_norm[idx_boot[,i]], order = c(p, 0, q), xreg = X_norm[idx_boot[,i], as.numeric(idx_usati[1:idx_aic])], include.mean = FALSE)
-  matrix_beta[i, 1:length(col_name)] = as.vector(mdl$coef[length(mdl$coef)])
+  matrix_beta[i, 1:length(col_name)] = as.vector(mdl$coef)
+  print(i)
 }
 
 #distribuzioni e analisi significatività
@@ -199,28 +200,37 @@ for (k in 1:length(col_name)){
   IC_down[k] <- quantile(matrix_beta[,k], 0.025)
   medie_coeff[k] <- mean(matrix_beta[,k])
   isSignificativo[k] <- ifelse(IC_down[k]*IC_up[k] >=0, 1, 0)
-  print(ifelse(IC_down[k]*IC_up[k] >=0, 1, 0))
-  print(k)
 }
 
 tabella_pred <- data.frame(medie_coeff,  IC_down, IC_up, isSignificativo)
+sum(isSignificativo)
+vettore_sel <- as.numeric(isSignificativo[5:length(isSignificativo)])
+indici_uno <- which(vettore_sel == 1)
+X_norm_significativi <- X_norm[, as.numeric(idx_usati[1:idx_aic])]
+X_norm_significativi <- X_norm_significativi[,indici_uno]
 
+#in isSignificativo o tutti e soli i coefficienti singificativi
+
+mse_list <- list()
+R2_list <- list()
 
 for (i in 1:K){
   idx_train <- idx_boot[1:(N*0.75),i];
   idx_test <- idx_boot[(N*0.75+1):N,i];
   
-  mdl_train <- arima(Y_norm, order = c(p, 0, q), xreg = X_norm[idx_train, as.numeric(idx_usati[1:idx_aic])], include.mean = FALSE)
+  mdl_train <- arima(Y_norm[idx_train], order = c(p, 0, q), xreg = X_norm_significativi[idx_train,], include.mean = FALSE)
   
-  y_hat_test <- predict(mdl_train, se.fit = TRUE, n.ahead = 1, xreg = X_norm[idx_test, as.numeric(idx_usati[1:idx_aic])])
+  temp <- predict(mdl_train, se.fit = TRUE, n.ahead = 1, newxreg = X_norm_significativi[idx_test,])
+  y_hat_test <- as.vector(temp$pred)
   
-  mse <- ((Y_norm[idx_test] - y_hat_test[idx_test])^2)/length(idx_test)
+  mse <- var(Y_norm[idx_test] - y_hat_test)
+  R2 <- 1- mse/var(Y_norm[idx_test] - mean(Y_norm[idx_test]))
+  R2_list <- c(R2_list, R2)
   mse_list <- c(mse_list, mse)
   
-  as.vector(mdl_train$coef)
-  
-  
-  }
+}
+
+hist(as.numeric(mse_list))
 
 best_mdl_sw$coef
 col_name <- colnames(X_norm[, as.numeric(idx_usati[1:idx_aic])])

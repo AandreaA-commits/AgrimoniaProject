@@ -170,15 +170,61 @@ Box.test(res_sw, lag = 20, type = "Ljung-Box") #non correlati
 #bootstrap per validazione (vedere normalità dei residui)
 
 #SELEZIONE DEI COEFFICIENTI SIGNIFICATIVI IN TRAIN
-N <- length(Y_norm) #N è la lunghezza di ciascuna simulazione
+N <- 1000 #N è la lunghezza di ciascuna simulazione
 K <- 100 #numero di ripetizioni
-L <- floor(N / 100)#lunghezza media dei blocchi
+L <- 100 #lunghezza media dei blocchi
 
 idx_boot <- blockboot(Y_norm, N, K, L, l_gen = "poisson")
 
+col_name_reg <- colnames(X_norm[, as.numeric(idx_usati[1:idx_aic])])
+col_name <- names(best_mdl_sw$coef)
+
+matrix_beta <- matrix(ncol = length(col_name), nrow = K)
+
+for(i in 1:K){
+  mdl <- arima(Y_norm[idx_boot[,i]], order = c(p, 0, q), xreg = X_norm[idx_boot[,i], as.numeric(idx_usati[1:idx_aic])], include.mean = FALSE)
+  matrix_beta[i, 1:length(col_name)] = as.vector(mdl$coef[length(mdl$coef)])
+}
+
+#distribuzioni e analisi significatività
+#calcolo degli intervalli di confidenza
+IC_up <- numeric(length(col_name))
+IC_down <- numeric(length(col_name))
+medie_coeff <- setNames(numeric(length(col_name)), col_name)
+
+isSignificativo<- setNames(numeric(length(col_name)), col_name)
+
+for (k in 1:length(col_name)){
+  IC_up[k] <- quantile(matrix_beta[,k], 0.975)
+  IC_down[k] <- quantile(matrix_beta[,k], 0.025)
+  medie_coeff[k] <- mean(matrix_beta[,k])
+  isSignificativo[k] <- ifelse(IC_down[k]*IC_up[k] >=0, 1, 0)
+  print(ifelse(IC_down[k]*IC_up[k] >=0, 1, 0))
+  print(k)
+}
+
+tabella_pred <- data.frame(medie_coeff,  IC_down, IC_up, isSignificativo)
 
 
+for (i in 1:K){
+  idx_train <- idx_boot[1:(N*0.75),i];
+  idx_test <- idx_boot[(N*0.75+1):N,i];
+  
+  mdl_train <- arima(Y_norm, order = c(p, 0, q), xreg = X_norm[idx_train, as.numeric(idx_usati[1:idx_aic])], include.mean = FALSE)
+  
+  y_hat_test <- predict(mdl_train, se.fit = TRUE, n.ahead = 1, xreg = X_norm[idx_test, as.numeric(idx_usati[1:idx_aic])])
+  
+  mse <- ((Y_norm[idx_test] - y_hat_test[idx_test])^2)/length(idx_test)
+  mse_list <- c(mse_list, mse)
+  
+  as.vector(mdl_train$coef)
+  
+  
+  }
 
-
+best_mdl_sw$coef
+col_name <- colnames(X_norm[, as.numeric(idx_usati[1:idx_aic])])
+beta_values <- setNames(numeric(length(col_name)), col_name)
+matrx_beta <- matrix(data = numeric(length(col_name)), nrow = K, ncol = length(col_name), dimnames = c(NULL, col_name))
 
 

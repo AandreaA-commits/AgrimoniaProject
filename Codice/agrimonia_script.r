@@ -2,9 +2,13 @@
 #install.packages('imputeTS')
 #install.packages('GGPlot')
 #install.packages('Matrix')
-install.packages('clusterSim')
-install.packages("lmtest")
-install.packages('forecast')
+#install.packages('clusterSim')
+#install.packages("lmtest")
+#install.packages('forecast')
+#install.packages("https://cran.r-project.org/src/contrib/Archive/rlang/rlang_1.1.1.tar.gz", repos = NULL, type="source")
+#install.packages("devtools")
+#devtools::install_github("lamferzon/block-bootstrap-for-R")
+library(bboot)
 library(tseries)
 library(imputeTS)
 library(ggplot2)
@@ -88,11 +92,11 @@ X_norm <- X_norm[, -1];
 
 p <- 2;
 q <- 2;
-P <- 1;
-Q <- 1;
+P <- 0;
+Q <- 0;
 
-mdl <- arima(Y_norm, order = c(p, 0, q), xreg = X_norm, seasonal = list(order = c(P, 0, Q), period = 7))
-Box.test(mdl$residuals, lag = 20, type = "Ljung-Box")
+mdl <- arima(Y_norm, order = c(p, 0, q), xreg = X_norm, seasonal = list(order = c(P, 0, Q), period = 7), include.mean = FALSE)
+Box.test(mdl$residuals, lag = 20, type = "Ljung-Box") #non correlati
 #verifica stazionarietà dei residui
 res <- mdl$residuals
 
@@ -103,7 +107,7 @@ R2 <- 1 - var(res)/var(Y_norm)
 
 plot(res)
 media <- mean(res, na.rm = TRUE)
-adf.test(res)
+adf.test(res) #stazionario
 hist(res)
 
 #verifica normalità dei residui
@@ -116,73 +120,65 @@ idx_da_usare <- 1:31;
 idx_usati <- list();
 
 models_sw <- list();
-aic_sw <- list();
+R2_sw <- list();
 
 
 for (i in 1:length(idx_da_usare)){
-  aic_temp <- list();
+  R2_temp <- list();
   for (j in 1:length(idx_da_usare)){
     idx <- c(idx_usati, idx_da_usare[j])
-    print(as.numeric(idx))
-    mdl <- arima(Y_std, order = c(1, 0, 1), xreg = X_norm[, as.numeric(idx)], )
-    aic_temp <- c(aic_temp, mdl$aic)
+    #print(as.numeric(idx))
+    mdl <- arima(Y_norm, order = c(p, 0, q), xreg = X_norm[, as.numeric(idx)], )
+    R2 <- 1- var(mdl$residuals)
+    R2_temp <- c(R2_temp, R2)
   }
   
-  indice <- which.min(aic_temp)
-  print("ciao")
-  print(indice)
+  indice <- which.max(R2_temp)
   idx_usati <<- c(idx_usati, idx_da_usare[indice])
   idx_da_usare <<- idx_da_usare[-indice]
-  aic_sw <<- c(aic_sw, aic_temp[indice])
+  R2_sw <<- c(R2_sw, R2_temp[indice])
 }
 
-best <- which.min(aic_sw)
+aic_best_sw <- list()
+
+for (i in 1:length(idx_usati)){
+  mdl <- arima(Y_norm, order = c(p, 0, q), xreg = X_norm[, as.numeric(idx_usati[1:i])], include.mean = FALSE)
+  aic_best_sw <<- c(aic_best_sw, mdl$aic)
+}
+
+idx_aic <- which.min(aic_best_sw)
+
+best_mdl_sw <- arima(Y_norm, order = c(p, 0, q), xreg = X_norm[, as.numeric(idx_usati[1:idx_aic])], include.mean = FALSE)
+R2 <- 1- var(best_mdl_sw$residuals)
+coeftest(best_mdl_sw)
+
 
 #modello migliore dopo sw
-best_mdl_sw <- arima(Y_std, order = c(1,0,1), xreg = X_norm[, as.numeric(idx[1:best])])
-
 res_sw <- best_mdl_sw$residuals
 
-res_sw_prova <- na_kalman(res_sw, model = "StructTS", smooth = TRUE)
+adf.test(res_sw)
+jarque.bera.test(res_sw)
+plot(res_sw)
+mean(res_sw)
+acf(res_sw)
+pacf(res_sw)
 
-adf.test(res_sw_prova)
-jarque.bera.test(res_sw_prova)
-plot(res_sw_prova)
-mean(res_sw_prova)
-acf(res_sw_prova)
-pacf(res_sw_prova)
+Box.test(res_sw, lag = 20, type = "Ljung-Box") #non correlati
 
 #staz residui iniziale
 #analizzare modello migliore sw
-#bootstrap epr validazione (vedere normalità dei residui)
+#bootstrap per validazione (vedere normalità dei residui)
 
-mdl <- list()
+#SELEZIONE DEI COEFFICIENTI SIGNIFICATIVI IN TRAIN
+N <- length(Y_norm) #N è la lunghezza di ciascuna simulazione
+K <- 100 #numero di ripetizioni
+L <- floor(N / 100)#lunghezza media dei blocchi
 
-max_p <- 4
-max_q <- 4
-max_P <- 2  # Massimo ordine stagionale per P
-max_Q <- 2  # Massimo ordine stagionale per Q
-m <- 12     # Frequenza stagionale
-
-# Loop per esplorare le combinazioni di ordini AR, MA e stagionali
-mdl <- list()
-for (i in 1:max_p) {
-  for (j in 1:max_q) {
-    for (k in 0:max_P) {
-      for (l in 0:max_Q) {
-        stimato <- arima(Y_std, order = c(i, 0, j), seasonal = list(order = c(k, 0, l), period = 12), xreg = X_norm)
-        mdl <- c(mdl, stimato$aic);
-      }
-    }
-  }
-}
-
-#utilizzo auto.arimo
-auto <- auto.arima(Y_std, max.p=5, max.q = 5, max.P = 2, max.Q = 2, start.P = 0, start.Q = 0, start.p = 1, start.q = 1, 
-           stationary = TRUE, seasonal = TRUE, ic=c("aicc", "aic", "bic"), stepwise=TRUE, trace=FALSE,
-           xreg = X_norm, seasonal.test="ch", test=c("kpss","adf","pp"),
-           allowdrift=TRUE, allowmean=TRUE, lambda=NULL, biasadj=FALSE)
+idx_boot <- blockboot(Y_norm, N, K, L, l_gen = "poisson")
 
 
-arima(Y_std, )
+
+
+
+
 

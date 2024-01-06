@@ -8,6 +8,8 @@
 #install.packages("https://cran.r-project.org/src/contrib/Archive/rlang/rlang_1.1.1.tar.gz", repos = NULL, type="source")
 #install.packages("devtools")
 #devtools::install_github("lamferzon/block-bootstrap-for-R")
+installed.packages("forecast")
+library(forecast)
 library(bboot)
 library(tseries)
 library(imputeTS)
@@ -209,6 +211,12 @@ indici_uno <- which(vettore_sel == 1)
 X_norm_significativi <- X_norm[, as.numeric(idx_usati[1:idx_aic])]
 X_norm_significativi <- X_norm_significativi[,indici_uno]
 
+final_mdl <- arima(Y_norm, xreg = X_norm_significativi, order = c(p, 0, q), include.mean = FALSE)
+final_mdl$coef
+coeftest(final_mdl$coef)
+mse <- var(final_mdl$residuals)
+R2 <- 1- mse/var(Y_norm)
+
 #in isSignificativo o tutti e soli i coefficienti singificativi
 
 mse_list <- list()
@@ -218,17 +226,29 @@ for (i in 1:K){
   idx_train <- idx_boot[1:(N*0.75),i];
   idx_test <- idx_boot[(N*0.75+1):N,i];
   
-  mdl_train <- arima(Y_norm[idx_train], order = c(p, 0, q), xreg = X_norm_significativi[idx_train,], include.mean = FALSE)
+  mdl_train <- Arima(Y_norm[idx_train], order = c(p, 0, q), xreg = X_norm_significativi[idx_train,], include.mean = FALSE)
+  mdl_test <- Arima(Y_norm[idx_test], model = mdl_train, xreg = X_norm_significativi[idx_test,], include.mean = FALSE )
   
-  temp <- predict(mdl_train, se.fit = TRUE, n.ahead = 1, newxreg = X_norm_significativi[idx_test,])
-  y_hat_test <- as.vector(temp$pred)
+  res <- mdl_test$residuals
+  #temp <- forecast(mdl_train, h = 250, newxreg = X_norm_significativi[idx_train,])
+  #temp <- as.vector(forecast(mdl_train, h = 250, xreg = X_norm_significativi[idx_test,])$mean)
+  #y_hat_test <- as.vector(temp$pred)
+  #y_hat_test <- as.vector(temp$mean)
   
-  mse <- var(Y_norm[idx_test] - y_hat_test)
-  R2 <- 1- mse/var(Y_norm[idx_test] - mean(Y_norm[idx_test]))
+  
+  #mse <- mean((Y_norm[idx_test] - y_hat_test)^2)
+  mse <- var(res)
+  R2 <- 1- mse/var(Y_norm[idx_test])
   R2_list <- c(R2_list, R2)
   mse_list <- c(mse_list, mse)
   
 }
+
+mse_medio <- mean(as.numeric(mse_medio))
+R2_medio <- mean(as.numeric(R2_list))
+
+#we have a model
+
 
 hist(as.numeric(mse_list))
 

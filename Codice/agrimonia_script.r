@@ -218,7 +218,7 @@ X_norm_significativi <- X_norm_significativi[,indici_uno]
 
 final_mdl <- arima(Y_norm, xreg = X_norm_significativi, order = c(p, 0, q), include.mean = FALSE)
 final_mdl$coef
-coeftest(final_mdl$coef)
+coeftest(final_mdl)
 mse_final <- var(final_mdl$residuals)
 R2_final <- 1- mse/var(Y_norm)
 

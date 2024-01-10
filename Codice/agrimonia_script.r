@@ -9,6 +9,10 @@
 #install.packages("devtools")
 #devtools::install_github("lamferzon/block-bootstrap-for-R")
 installed.packages("forecast")
+install.packages("RSNNS")
+install.packages("e1071")
+library(e1071)
+library(RSNNS)
 library(forecast)
 library(bboot)
 library(tseries)
@@ -18,6 +22,7 @@ library(Matrix)
 library(clusterSim)
 library(lmtest)
 library(forecast)
+
 
 load("Agrimonia_Dataset_v_3_0_0.Rdata")
 subset <- AgrImOnIA_Dataset_v_3_0_0[AgrImOnIA_Dataset_v_3_0_0$IDStations=="677",]
@@ -214,8 +219,8 @@ X_norm_significativi <- X_norm_significativi[,indici_uno]
 final_mdl <- arima(Y_norm, xreg = X_norm_significativi, order = c(p, 0, q), include.mean = FALSE)
 final_mdl$coef
 coeftest(final_mdl$coef)
-mse <- var(final_mdl$residuals)
-R2 <- 1- mse/var(Y_norm)
+mse_final <- var(final_mdl$residuals)
+R2_final <- 1- mse/var(Y_norm)
 
 #in isSignificativo o tutti e soli i coefficienti singificativi
 
@@ -244,17 +249,44 @@ for (i in 1:K){
   
 }
 
-mse_medio <- mean(as.numeric(mse_medio))
+mse_medio <- mean(as.numeric(mse_list))
 R2_medio <- mean(as.numeric(R2_list))
 
 #we have a model
 
+#Support Vector Machine per time forecasting
 
-hist(as.numeric(mse_list))
+#aggiunta
+ar <- 3
+Y_svm <- Y_norm[(ar+1):length(Y_norm)]
+X_svm <- X_norm[(ar+1):length(Y_norm),]
 
-best_mdl_sw$coef
-col_name <- colnames(X_norm[, as.numeric(idx_usati[1:idx_aic])])
-beta_values <- setNames(numeric(length(col_name)), col_name)
-matrx_beta <- matrix(data = numeric(length(col_name)), nrow = K, ncol = length(col_name), dimnames = c(NULL, col_name))
+for (i in 1:ar){
+  X_svm <- cbind(Y_norm[i:(length(Y_norm)-ar+i-1)], X_svm)
+  n = -ar+i-1
+  colnames(X_svm)[1] <- paste("Y(t", n, ")", sep = "")
+}
 
+train_control = trainControl(method = "cv", number = 5)
+train(x = X_svm, y = Y_svm, method = "svmRadialSigma", trControl = train_control)
 
+#altro package
+mse_list_svm <- list()
+R2_list_svm <- list()
+
+for (i in 1:K){
+  idx_train <- idx_boot[1:(N*0.75),i];
+  idx_test <- idx_boot[(N*0.75+1):N,i];
+  
+  mdl_train_svm <- svm(x = X_svm[idx_train,], y = Y_svm[idx_train], kernel = 'linear', scale = FALSE, shrinkage = FALSE, epsilon =0.5, gamma = 100)
+  y_hat_svm <- predict(mdl_train_svm, X_svm[idx_test,])
+  res <- Y_svm[idx_test] - y_hat_svm
+ 
+  mse <- var(res)
+  R2 <- 1- mse/var(Y_svm[idx_test])
+  R2_list_svm <- c(R2_list_svm, R2)
+  mse_list_svm <- c(mse_list_svm, mse)
+}
+
+mse_medio_svm <- mean(as.numeric(mse_list_svm))
+R2_medio_svm <- mean(as.numeric(R2_list))

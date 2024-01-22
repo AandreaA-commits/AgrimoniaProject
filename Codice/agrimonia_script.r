@@ -8,9 +8,8 @@
 #install.packages("https://cran.r-project.org/src/contrib/Archive/rlang/rlang_1.1.1.tar.gz", repos = NULL, type="source")
 #install.packages("devtools")
 #devtools::install_github("lamferzon/block-bootstrap-for-R")
-installed.packages("forecast")
-install.packages("RSNNS")
-install.packages("e1071")
+#install.packages("RSNNS")
+#install.packages("e1071")
 library(e1071)
 library(RSNNS)
 library(forecast)
@@ -73,7 +72,7 @@ plot(Y_norm, type = 'l')
 hist(Y_norm)
 
 #test normalità della Y
-jarque.bera.test(Y_norm)
+jarque.bera.test(Y_norm) #rifiuta l'ipotesi di normalità
 
 
 #autocorrelation function -> per ordine dell'MA
@@ -123,6 +122,7 @@ jarque.bera.test(res) #non è normale
 # calcolo dei p value
 coeftest(mdl)
 
+#implementazione stepwise su arima
 idx_da_usare <- 1:31;
 idx_usati <- list();
 
@@ -146,6 +146,7 @@ for (i in 1:length(idx_da_usare)){
   R2_sw <<- c(R2_sw, R2_temp[indice])
 }
 
+#di tutti i regressori selezionati in sw prendiamo il sottoinsieme che ha indice migliore
 aic_best_sw <- list()
 
 for (i in 1:length(idx_usati)){
@@ -156,7 +157,7 @@ for (i in 1:length(idx_usati)){
 idx_aic <- which.min(aic_best_sw)
 
 best_mdl_sw <- arima(Y_norm, order = c(p, 0, q), xreg = X_norm[, as.numeric(idx_usati[1:idx_aic])], include.mean = FALSE)
-R2 <- 1- var(best_mdl_sw$residuals)
+R2_best_mdl_sw <- 1- var(best_mdl_sw$residuals)
 coeftest(best_mdl_sw)
 
 
@@ -203,8 +204,8 @@ medie_coeff <- setNames(numeric(length(col_name)), col_name)
 isSignificativo<- setNames(numeric(length(col_name)), col_name)
 
 for (k in 1:length(col_name)){
-  IC_up[k] <- quantile(matrix_beta[,k], 0.975)
-  IC_down[k] <- quantile(matrix_beta[,k], 0.025)
+  IC_up[k] <- quantile(matrix_beta[,k], 0.995)
+  IC_down[k] <- quantile(matrix_beta[,k], 0.005)
   medie_coeff[k] <- mean(matrix_beta[,k])
   isSignificativo[k] <- ifelse(IC_down[k]*IC_up[k] >=0, 1, 0)
 }
@@ -215,6 +216,7 @@ vettore_sel <- as.numeric(isSignificativo[5:length(isSignificativo)])
 indici_uno <- which(vettore_sel == 1)
 X_norm_significativi <- X_norm[, as.numeric(idx_usati[1:idx_aic])]
 X_norm_significativi <- X_norm_significativi[,indici_uno]
+X_norm_significativi <- X_norm_significativi[,1:length(X_norm_significativi[1,])-1]
 
 final_mdl <- arima(Y_norm, xreg = X_norm_significativi, order = c(p, 0, q), include.mean = FALSE)
 final_mdl$coef
@@ -222,8 +224,8 @@ coeftest(final_mdl)
 mse_final <- var(final_mdl$residuals)
 R2_final <- 1- mse/var(Y_norm)
 
-#in isSignificativo o tutti e soli i coefficienti singificativi
-
+#in isSignificativo ho tutti e soli i coefficienti singificativi
+# Adesso facciamo testing con bootstrap
 mse_list <- list()
 R2_list <- list()
 
@@ -249,8 +251,8 @@ for (i in 1:K){
   
 }
 
-mse_medio <- mean(as.numeric(mse_list))
-R2_medio <- mean(as.numeric(R2_list))
+mse_medio_boot_val <- mean(as.numeric(mse_list))
+R2_medio_boot_val <- mean(as.numeric(R2_list))
 
 #we have a model
 
@@ -267,19 +269,17 @@ for (i in 1:ar){
   colnames(X_svm)[1] <- paste("Y(t", n, ")", sep = "")
 }
 
-train_control = trainControl(method = "cv", number = 5)
-train(x = X_svm, y = Y_svm, method = "svmRadialSigma", trControl = train_control)
-
 #altro package
 mse_list_svm <- list()
 R2_list_svm <- list()
 
+#validazione sugli indici di test bootstrap
 for (i in 1:K){
   idx_train <- idx_boot[1:(N*0.75),i];
   idx_test <- idx_boot[(N*0.75+1):N,i];
   
-  mdl_train_svm <- svm(x = X_svm[idx_train,], y = Y_svm[idx_train], kernel = 'linear', scale = FALSE, shrinkage = FALSE, epsilon =0.5, gamma = 100)
-  y_hat_svm <- predict(mdl_train_svm, X_svm[idx_test,])
+  mdl_train_svm <- svm(x = X_svm[idx_train], y = Y_svm[idx_train], kernel = 'linear', scale = FALSE, shrinkage = FALSE, epsilon =0.2, gamma = 20)
+  y_hat_svm <- predict(mdl_train_svm, X_svm[idx_test])
   res <- Y_svm[idx_test] - y_hat_svm
  
   mse <- var(res)
@@ -288,5 +288,39 @@ for (i in 1:K){
   mse_list_svm <- c(mse_list_svm, mse)
 }
 
-mse_medio_svm <- mean(as.numeric(mse_list_svm))
-R2_medio_svm <- mean(as.numeric(R2_list))
+mse_medio_boot_svm <- mean(na.omit(as.numeric(mse_list_svm)))
+R2_medio_boot_svm <- mean(na.omit(as.numeric(R2_list_svm)))
+
+Box.test(res, lag = 20, type = "Ljung-Box") #non correlati
+
+
+
+
+
+
+
+
+#proviamo con gli indici significativi della sw
+mse_list_svm <- list()
+R2_list_svm <- list()
+
+X_norm_significativi_svm <- X_svm[, as.numeric(idx_usati[1:idx_aic])]
+X_norm_significativi_svm <- X_svm[,indici_uno]
+X_norm_significativi_svm <- X_svm[,1:length(X_norm_significativi[1,])-1]
+
+for (i in 1:K){
+  idx_train <- idx_boot[1:(N*0.75),i];
+  idx_test <- idx_boot[(N*0.75+1):N,i];
+  
+  mdl_train_svm <- svm(x = X_norm_significativi_svm[idx_train,], y = Y_svm[idx_train], kernel = 'linear', scale = FALSE, shrinkage = FALSE, epsilon =0.5, gamma = 100)
+  y_hat_svm <- predict(mdl_train_svm, X_norm_significativi_svm[idx_test])
+  res <- Y_svm[idx_test] - y_hat_svm
+  
+  mse <- var(res)
+  R2 <- 1- mse/var(Y_svm[idx_test])
+  R2_list_svm <- c(R2_list_svm, R2)
+  mse_list_svm <- c(mse_list_svm, mse)
+}
+
+mse_medio_boot_svm <- mean(as.numeric(mse_list_svm))
+R2_medio_boot_svm <- mean(as.numeric(R2_list_svm))

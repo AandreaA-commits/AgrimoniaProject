@@ -1,0 +1,27 @@
+adf e analisi momenti serie raw
+analisi di regressori (istogrammi, matrice di correlazione)
+logaritmo della y
+controllo dei nan
+controllo degli outlier e rimozione all 99% di confidenza
+Imputation
+normalization
+acf
+pacf
+analisi arima iterativa per trovare ordine p e q (ordine più basso con residui incorrelati)
+stepwise con ordini stabiliti al passo precedente
+selezione aic di subset di regressori di stepwise
+bootstrap per significatività all 99% dei regressori (ic_up e ic_down)
+calcolo R2_boot, mse_boot  (sw selection +coeff significativi da boot)
+
+MACHINE LEARNING svm
+costruzione matrice dei regressori con ar 3 (ordine validato su R2)
+test du idx_boot divisi in 75 25
+controllo incorrelazione dei residui
+
+METODOLOGY
+imputation con kalman filter
+armax
+algoritmo stepwise
+(test di ipotesi)
+block bootstrap validazione
+svm

@@ -10,6 +10,8 @@
 #devtools::install_github("lamferzon/block-bootstrap-for-R")
 #install.packages("RSNNS")
 #install.packages("e1071")
+#install.packages("grDevices")
+install.packages("skedastic")
 library(e1071)
 library(RSNNS)
 library(forecast)
@@ -21,7 +23,10 @@ library(Matrix)
 library(clusterSim)
 library(lmtest)
 library(forecast)
-
+library(corrplot)
+library(xtable)
+library(grDevices)
+library(breusch_pagan)
 
 load("Agrimonia_Dataset_v_3_0_0.Rdata")
 subset <- AgrImOnIA_Dataset_v_3_0_0[AgrImOnIA_Dataset_v_3_0_0$IDStations=="677",]
@@ -50,19 +55,7 @@ sum(is.na(AQ_nh3_log))
 #kalman smoother per missing values del log
 Y <- na_kalman(AQ_nh3_log, model = "StructTS", smooth = TRUE)
 
-grafico <- ggplot(subset, aes(x = subset$Time, y = Y)) +
-  geom_line() +
-  geom_hline(yintercept = mean(Y), linetype = "dashed", color = "red", size = 1) +
-  geom_hline(yintercept =  + q_995, linetype = "dashed", color = "blue", size = 1) +
-  geom_hline(yintercept =  + q_005, linetype = "dashed", color = "blue", size = 1) +
-  labs(title = "Serie Storica con Media e Varianza",
-       x = "Data",
-       y = "Valore") +
-  theme_minimal()
-
-# Visualizzazione del grafico
-print(grafico)
-
+#normalizzazione dei dati
 Y_norm <- (Y-mean(Y))/sd(Y)
 
 #plotting della serie storica
@@ -159,6 +152,8 @@ idx_aic <- which.min(aic_best_sw)
 best_mdl_sw <- arima(Y_norm, order = c(p, 0, q), xreg = X_norm[, as.numeric(idx_usati[1:idx_aic])], include.mean = FALSE)
 R2_best_mdl_sw <- 1- var(best_mdl_sw$residuals)
 coeftest(best_mdl_sw)
+plot(best_mdl_sw$residuals)
+hist(best_mdl_sw$residuals, main= "Residuals histogram")
 
 
 #modello migliore dopo sw
@@ -220,9 +215,9 @@ X_norm_significativi <- X_norm_significativi[,1:length(X_norm_significativi[1,])
 
 final_mdl <- arima(Y_norm, xreg = X_norm_significativi, order = c(p, 0, q), include.mean = FALSE)
 final_mdl$coef
-coeftest(final_mdl)
+tmp <- coeftest(final_mdl)
 mse_final <- var(final_mdl$residuals)
-R2_final <- 1- mse/var(Y_norm)
+R2_final <- 1- mse_final/var(Y_norm)
 
 #in isSignificativo ho tutti e soli i coefficienti singificativi
 # Adesso facciamo testing con bootstrap
@@ -254,7 +249,12 @@ for (i in 1:K){
 mse_medio_boot_val <- mean(as.numeric(mse_list))
 R2_medio_boot_val <- mean(as.numeric(R2_list))
 
-#we have a model
+#we have a model ora vediamo come predice
+plot_best <- Arima(Y_norm, model = mdl_train, xreg = X_norm_significativi, include.mean = FALSE)
+y_hat_best <- Y_norm - plot_best$residuals
+plot(subset$Time, Y_norm, type = "l", col ="red", lwd = 1, xlab = "Time", ylab = "",  main = "")
+lines(subset$Time, y_hat_best, col = "blue", lwd = 1)
+
 
 #Support Vector Machine per time forecasting
 
@@ -291,6 +291,14 @@ for (i in 1:K){
 mse_medio_boot_svm <- mean(na.omit(as.numeric(mse_list_svm)))
 R2_medio_boot_svm <- mean(na.omit(as.numeric(R2_list_svm)))
 
+plot_best_svm <- svm(x = X_svm, y = Y_svm, kernel = 'linear', scale = FALSE, shrinkage = FALSE, epsilon =0.2, gamma = 20)
+y_hat_best_svm <- predict(plot_best_svm, X_svm)
+plot(subset$Time[4:length(subset$Time)], Y_svm, type = "l", col ="red", lwd = 1, xlab = "Time", ylab = "",  main = "")
+lines(subset$Time[4:length(subset$Time)], y_hat_best_svm, col = "blue", lwd = 1)
+
+
+
+
 Box.test(res, lag = 20, type = "Ljung-Box") #non correlati
 
 
@@ -324,3 +332,112 @@ for (i in 1:K){
 
 mse_medio_boot_svm <- mean(as.numeric(mse_list_svm))
 R2_medio_boot_svm <- mean(as.numeric(R2_list_svm))
+
+######################################
+#GRAFICI
+#plot della AQ_nh3
+plot(subset$Time, Y, type = "l", col = "black", lwd = 1, xlab = "Time", ylab = "", main = "log(AQ_nh3) concentrations")
+abline(h = mean(Y), col = "red", lty = 1, lwd = 1)
+abline(h = q_005, col = "blue", lty = 2, lwd = 1)
+abline(h = q_995, col = "blue", lty = 2, lwd = 1)
+legend("bottomleft", legend = c("AQ_nh3", "mean", "99% CI"), col = c("black", "red", "blue"), lty = c(1, 2, 2), lwd = 1)
+
+
+#plot della AQ_nh3 con i valori da imputare
+plot(subset$Time, Y, type = "l", col = "black", lwd = 1, xlab = "Time", ylab = "mug/m^3", main = "AQ_nh3 outliers")
+abline(h = mean(Y), col = "red", lty = 1, lwd = 1)
+
+#grafico dell'ammoniaca prima della lavorazione 
+#ATTENZIONE DA ESEGUIRE PRIMA DELLA RIMOZIONE IN ALTO
+plot(subset$Time, Y, type = "l", col = "black",, lwd = 1, xlab = "Time", ylab = "mug/m^3", main = "log(AQ_nh3) imputed ")
+abline(h = mean(Y), col = "red", lty = 1, lwd = 1)
+abline(h = q_005, col = "blue", lty = 2, lwd = 1)
+abline(h = q_995, col = "blue", lty = 2, lwd = 1)
+legend("bottomleft", legend = c("AQ_nh3 conc", "mean", "99% CI"), col = c("black", "red", "blue"), lty = c(1, 2, 2), lwd = 2)
+
+#matrice di correlazione
+mtrx <- cbind(Y_norm, X_norm)
+corr_matrix <- cor(mtrx)
+corrplot(corr_matrix, type="upper", order="hclust")
+corrplot(corr_matrix, type = "upper", order = "original",  tl.pos='n')
+
+
+
+
+#grafici degli istogrammi
+par(mfrow = c(2,3))
+p2<-hist(X[,2], main="" , xlab = "WE_temp_2m [m/s]", ylab= "Frequency")
+p3<-hist(X[,3], main="" , xlab = "WE_wind_speed_10m_mean [m/s]", ylab= "Frequency")
+p4<-hist(X[,4], main="" , xlab = "WE_wind_speed_10m_max [m/s]", ylab= "Frequency")
+p4<-hist(X[,12], main="" , xlab = "WE_tot_precipitation [m]", ylab= "Frequency")
+p17<-hist(X[,17], main="" , xlab = "WE_surface_pressure [Pa]", ylab= "Frequency")
+p18<-hist(X[,18], main="" , xlab = "WE_solar_radiation [J/m^2]", ylab= "Frequency")
+p19<-hist(X[,19], main="" , xlab = "WE_rh_min [%]", ylab= "Frequency")
+p20<-hist(X[,20], main="" , xlab = "WE_rh_mean [%]", ylab= "Frequency")
+p21<-hist(X[,21], main="" , xlab = "WE_rh_max [%]", ylab= "Frequency")
+p22<-hist(X[,22], main="" , xlab = "WE_wind_speed_100m_mean [m/s]", ylab= "Frequency")
+p23<-hist(X[,23], main="" , xlab = "WE_wind_speed_100m_max [m/s]", ylab= "Frequency")
+p31<-hist(X[,31], main="" , xlab = "WE_blh_layer_max [%]", ylab= "Frequency")
+p32<-hist(X[,32], main="" , xlab = "WE_blh_layer_max [%]", ylab= "Frequency")
+
+hist(AQ_nh3, main="" , xlab = "AQ_nh3 [mug/m^3]",  ylab= "Frequency")
+
+#grafici delle barplot
+#p5<-barplot(table(X[,5]), main="" , xlab = "WE_mode_wind_direction_10mN", ylab= "Frequency")
+#p6<-barplot(table(X[,6]), main="" , xlab = "WE_mode_wind_direction_10mNE", ylab= "Frequency")
+#p7<-barplot(table(X[,7]), main="" , xlab = "WE_mode_wind_direction_10mNW", ylab= "Frequency")
+#p8<-barplot(table(X[,8]), main="" , xlab = "WE_mode_wind_direction_10mS", ylab= "Frequency")
+#p9<-barplot(table(X[,9]), main="" , xlab = "WE_mode_wind_direction_10mSE", ylab= "Frequency")
+#p10<-barplot(table(X[,10]), main="" , xlab = "WE_mode_wind_direction_10mSW", ylab= "Frequency")
+#p11<-barplot(table(X[,11]), main="" , xlab = "WE_mode_wind_direction_10mW", ylab= "Frequency")
+p13<-barplot(table(X[,13]), main="" , xlab = "WE_precipitation_t1", ylab= "Frequency")
+p14<-barplot(table(X[,14]), main="" , xlab = "WE_precipitation_t3", ylab= "Frequency")
+p15<-barplot(table(X[,15]), main="" , xlab = "WE_precipitation_t5", ylab= "Frequency")
+p16<-barplot(table(X[,16]), main="" , xlab = "WE_precipitation_t6", ylab= "Frequency")
+#p5<-barplot(table(X[,24]), main="" , xlab = "WE_mode_wind_direction_100mN", ylab= "Frequency")
+#p6<-barplot(table(X[,25]), main="" , xlab = "WE_mode_wind_direction_100mNE", ylab= "Frequency")
+#p7<-barplot(table(X[,26]), main="" , xlab = "WE_mode_wind_direction_100mNW", ylab= "Frequency")
+#p8<-barplot(table(X[,27]), main="" , xlab = "WE_mode_wind_direction_100mS", ylab= "Frequency")
+#p9<-barplot(table(X[,28]), main="" , xlab = "WE_mode_wind_direction_100mSE", ylab= "Frequency")
+#p10<-barplot(table(X[,29]), main="" , xlab = "WE_mode_wind_direction_100mSW", ylab= "Frequency")
+#p11<-barplot(table(X[,30]), main="" , xlab = "WE_mode_wind_direction_100mW", ylab= "Frequency")
+
+directions <- c("N", "NE", "NW", "S", "SE", "SW", "W")
+frequency_matrix <- matrix(0, nrow = length(directions), ncol = 1)
+for (i in 1:length(directions)) {
+  col_index <- which(colnames(X) == paste("WE_mode_wind_direction_100m", directions[i], sep=""))
+  frequency_matrix[i, ] <- sum(X[, col_index])
+}
+
+barplot(frequency_matrix, beside = TRUE,
+        names.arg = directions, main = "",
+        xlab = "WE_mode_wind_direction_100m", ylab = "Frequency")
+
+frequency_matrix_10m <- matrix(0, nrow = length(directions), ncol = 1)
+for (i in 1:length(directions)) {
+  col_index <- which(colnames(X) == paste("WE_mode_wind_direction_10m", directions[i], sep=""))
+  frequency_matrix_10m[i, ] <- sum(X[, col_index])
+}
+
+barplot(frequency_matrix_10m, beside = TRUE,
+        names.arg = directions, xlab = "WE_mode_wind_direction_10m", ylab = "Frequency")
+
+
+#istogramma della response variable
+##
+
+#tabella con medie e deviazioni standard
+medie <- colMeans(X)
+deviazioni_standard <- apply(X, 2, sd)
+tabella_medie_sd <- rbind(medie, deviazioni_standard)
+
+#grafici della acf e pacf
+acf(Y_norm, na.action = na.pass, lag.max = 50, main="Auto-correlation function of log-standardized Y")
+pacf(Y_norm, na.action = na.pass, lag.max = 10, main=" Partial auto-correlation function of log-standardized Y")
+
+#grafico final model arima
+hist(final_mdl$residuals)
+jarque.bera.test(final_mdl$residuals) #non è normale (giustifica bootstrap)
+Box.test(final_mdl$residuals) #non correlati
+adf.test(final_mdl$residuals) #stazionari
+breusch_pagan()
